@@ -85,6 +85,16 @@ class RoadSegment(AtomicDEVS):
 		return self.state
 
 	def extTransition(self, inputs):
+		queries = inputs.get(self.Q_recv, [])
+
+		query: Query
+		for query in queries:
+			sideways = False
+			if len(self.state["cars_present"]) == 0:
+				ack: QueryAck = QueryAck(query.ID, self.observ_delay, self.lane, sideways)
+			else:
+				ack: QueryAck = QueryAck(query.ID, self.state["t_until_dep"] + self.observ_delay, self.lane, sideways)
+
 		return self.state
 
 
@@ -104,7 +114,8 @@ class Generator(AtomicDEVS):
 			"next_car": None,
 			"time": 0.0,
 			"cars_generated": 0,
-			"current_car_id": 0
+			"current_car_id": 0,
+			"car_can_move": False
 		}
 
 		# input port
@@ -135,6 +146,12 @@ class Generator(AtomicDEVS):
 	def outputFnc(self):
 		if self.state["next_car"] is None:
 			return {}
+
+		if not self.state["car_can_move"] and self.state["next_car"] is not None:
+			return {
+				self.Q_send: Query(self.state["next_car"].ID)
+			}
+
 		return {
 			self.car_out: self.state["next_car"]
 		}
