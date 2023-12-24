@@ -1,55 +1,53 @@
 from pypdevs.DEVS import AtomicDEVS
+from pypdevs.infinity import INFINITY
 from components.messages import *
 
 
 class SideMarker(AtomicDEVS):
-    def __init__(self, block_name: str, v_max: float):
+    def __init__(self, block_name: str):
         super(SideMarker, self).__init__(block_name)
 
-        self.L: float = 5
-        self.v_max: float = v_max
-        self.observ_delay: float = 0.1
-        self.priority: bool = False
-        self.lane: int = 0
-
         self.state = {
-            "cars_present": [],
-            "t_until_dep": 0.0,
-            "remaining_x": 0.0,
-            "time": 0.0
+            "should_forward": False,
+            "queryAck": None
         }
 
         # input ports
-        self.car_in = self.addInPort("car_in")
-        self.Q_recv = self.addInPort("Q_recv")
-        self.Q_rack = self.addInPort("Q_rack")
+        self.mi = self.addInPort("mi")
 
         # output ports
-        self.car_out = self.addOutPort("car_out")
-        self.Q_send = self.addOutPort("Q_send")
-        self.Q_sack = self.addOutPort("Q_sack")
+        self.mo = self.addOutPort("mo")
 
-    def car_enter(self, car: Car) -> None:
-        pass
 
     def timeAdvance(self):
-        return 0.0
+        # if a QueryAck is received, forward it immediately
+        if self.state["should_forward"]:
+            return 0.0
+
+        # else, wait indefinitely
+        return INFINITY
 
     def outputFnc(self):
+        if self.state["queryAck"] is not None:
+            return {
+                self.mo: self.state["queryAck"]
+            }
         return {}
 
     def intTransition(self):
+        # after forwarding, set values to default
+        if self.state["should_forward"]:
+            self.state["should_forward"] = False
+            self.state["queryAck"] = None
+
         return self.state
 
     def extTransition(self, inputs):
-        queries = inputs.get(self.Q_recv, [])
+        ack: QueryAck = inputs.get(self.mi, None)
 
-        query: Query
-        for query in queries:
-            sideways = False
-            if len(self.state["cars_present"]) == 0:
-                ack: QueryAck = QueryAck(query.ID, self.observ_delay, self.lane, sideways)
-            else:
-                ack: QueryAck = QueryAck(query.ID, self.state["t_until_dep"] + self.observ_delay, self.lane, sideways)
+        if ack is not None:
+            ack.sideways = True
+            self.state["should_forward"] = True
+            self.state["queryAck"] = ack
 
         return self.state
