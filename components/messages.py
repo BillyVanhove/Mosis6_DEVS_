@@ -23,5 +23,5 @@ class Query:
 class QueryAck:
     ID: int  # ID of the car that queried the data
     t_until_dep: float
-    lane: int
-    sideways: bool
+    lane: int = 0
+    sideways: bool = False
