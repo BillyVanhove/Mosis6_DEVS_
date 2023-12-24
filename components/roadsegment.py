@@ -1,5 +1,8 @@
-from pypdevs.DEVS import AtomicDEVS, CoupledDEVS
-import random
+from pypdevs.DEVS import AtomicDEVS
+
+from components.helperfunctions import getTime
+from components.messages import *
+from pypdevs.infinity import INFINITY
 
 
 class RoadSegment(AtomicDEVS):

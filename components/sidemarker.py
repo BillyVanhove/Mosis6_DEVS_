@@ -1,5 +1,5 @@
-from pypdevs.DEVS import AtomicDEVS, CoupledDEVS
-import random
+from pypdevs.DEVS import AtomicDEVS
+from components.messages import *
 
 
 class SideMarker(AtomicDEVS):
@@ -30,9 +30,7 @@ class SideMarker(AtomicDEVS):
         self.Q_sack = self.addOutPort("Q_sack")
 
     def car_enter(self, car: Car) -> None:
-        self.state["cars_present"] += [car]
-        self.state["t_until_dep"] = getTime(self.L, car.v)
-        self.state["remaining_x"] = self.L
+        pass
 
     def timeAdvance(self):
         return 0.0

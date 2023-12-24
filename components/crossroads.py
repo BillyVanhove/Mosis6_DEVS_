@@ -1,4 +1,5 @@
 from pypdevs.DEVS import AtomicDEVS, CoupledDEVS
+from components.messages import *
 import random
 
 

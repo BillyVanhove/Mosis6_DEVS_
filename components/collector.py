@@ -1,5 +1,5 @@
-from pypdevs.DEVS import AtomicDEVS, CoupledDEVS
-import random
+from pypdevs.DEVS import AtomicDEVS
+from components.messages import *
 
 
 class Collector(AtomicDEVS):
