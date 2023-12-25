@@ -1,5 +1,6 @@
 from pypdevs.DEVS import AtomicDEVS
 from components.messages import *
+from pypdevs.infinity import INFINITY
 import random
 
 
@@ -23,6 +24,7 @@ class Generator(AtomicDEVS):
             "current_car_id": 0,
             "car_can_move": True,  # start on True because no cars are in the system at t=0
             "car_id_to_move": -1,
+            "t_until_dep": INFINITY,
             "query": None
         }
 
@@ -42,10 +44,13 @@ class Generator(AtomicDEVS):
     def getDestination(self) -> str:
         return random.sample(self.destinations, 1)[0]
 
+    def getGasStatus(self) -> bool:
+        return random.sample([True, False], 1)[0]
+
     def generateCar(self) -> Car:
         random_v = self.generate_v_pref()
         car = Car(ID=self.state["current_car_id"], v_pref=random_v, dv_pos_max=28, dv_neg_max=21,
-                  departure_time=self.state["time"], distance_traveled=0.0, v=random_v, no_gas=False,
+                  departure_time=self.state["time"], distance_traveled=0.0, v=random_v, no_gas=self.getGasStatus(),
                   destination=self.getDestination())
         return car
 
@@ -55,7 +60,7 @@ class Generator(AtomicDEVS):
             return 0.0
 
         # if a car can move or a query was sent, follow the normal procedure
-        return self.state["next_time"]
+        return min(self.state["t_until_dep"],self.state["next_time"])
 
     def outputFnc(self):
         if self.state["next_car"] is None:
@@ -76,9 +81,12 @@ class Generator(AtomicDEVS):
         return {}
 
     def intTransition(self):
+        if self.state["t_until_dep"] != INFINITY:
+            self.state["t_until_dep"] = INFINITY
+            print("inf")
 
         # make new car
-        if self.state["car_can_move"]:  # if car_can_move is False, then we shouldn't make a 2nd car yet
+        elif self.state["car_can_move"] and self.state["t_until_dep"] == INFINITY:  # if car_can_move is False, then we shouldn't make a 2nd car yet
             self.state["car_can_move"] = False  # a car is to enter the system so set to False
             # self.state["time"] += self.timeAdvance()
             self.state["current_car_id"] += 1
@@ -86,10 +94,13 @@ class Generator(AtomicDEVS):
             self.state["next_time"] = self.generate_IAT()
             self.state["cars_generated"] += 1
             self.state["query"] = Query(self.state["next_car"].ID)
+            print(self.state["current_car_id"])
+
 
         # handle query related stuff
         else:
             self.state["query"] = None
+            print("none")
 
         return self.state
 
@@ -102,6 +113,7 @@ class Generator(AtomicDEVS):
             # next action can happen at the scheduled time OR if the car is still on the segment in
             # front of it, it must wait for t_until_dep seconds to make sure the car is gone
             self.state["next_time"] = max(self.state["next_time"], self.state["time"] + t_until_dep)
+            self.state["t_until_dep"] = ack.t_until_dep
             self.state["time"] += self.elapsed
             self.state[
                 "car_can_move"] = True  # we know when the car can move now so we can already set the flag to true
