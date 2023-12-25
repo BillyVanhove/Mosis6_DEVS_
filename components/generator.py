@@ -73,7 +73,7 @@ class Generator(AtomicDEVS):
             return {}
 
         # if the id of the car to move is the id of the current car -> move it
-        if self.state["car_id_to_move"] == self.state["next_car"].ID:
+        if self.state["car_id_to_move"] == self.state["next_car"].ID and self.state["t_until_dep"] != INFINITY:
             return {
                 self.car_out: self.state["next_car"]
             }
