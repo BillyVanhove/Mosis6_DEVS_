@@ -3,6 +3,15 @@ from components.messages import *
 from pypdevs.infinity import INFINITY
 import random
 
+class UUID:
+    def __init__(self):
+        self.id = 0
+
+    def uuid4(self):
+        self.id += 1
+        return self.id
+
+uuid = UUID()
 
 class Generator(AtomicDEVS):
     def __init__(self, block_name: str, IAT_min: float, IAT_max: float, v_pref_mu: float, v_pref_sigma: float,
