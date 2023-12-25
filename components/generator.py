@@ -55,12 +55,18 @@ class Generator(AtomicDEVS):
         return car
 
     def timeAdvance(self):
+        if self.state["cars_generated"] > self.limit:
+            return INFINITY
+
         # if a car can't move, return 0.0 to send a Query immediately
         if not self.state["car_can_move"] and self.state["query"] is not None:
             return 0.0
 
+        if self.state["t_until_dep"] != INFINITY:
+            return self.state["t_until_dep"]
+
         # if a car can move or a query was sent, follow the normal procedure
-        return min(self.state["t_until_dep"],self.state["next_time"])
+        return self.state["next_time"]
 
     def outputFnc(self):
         if self.state["next_car"] is None:
@@ -83,7 +89,6 @@ class Generator(AtomicDEVS):
     def intTransition(self):
         if self.state["t_until_dep"] != INFINITY:
             self.state["t_until_dep"] = INFINITY
-            print("inf")
 
         # make new car
         elif self.state["car_can_move"] and self.state["t_until_dep"] == INFINITY:  # if car_can_move is False, then we shouldn't make a 2nd car yet
@@ -94,13 +99,11 @@ class Generator(AtomicDEVS):
             self.state["next_time"] = self.generate_IAT()
             self.state["cars_generated"] += 1
             self.state["query"] = Query(self.state["next_car"].ID)
-            print(self.state["current_car_id"])
 
 
         # handle query related stuff
         else:
             self.state["query"] = None
-            print("none")
 
         return self.state
 
@@ -113,7 +116,13 @@ class Generator(AtomicDEVS):
             # next action can happen at the scheduled time OR if the car is still on the segment in
             # front of it, it must wait for t_until_dep seconds to make sure the car is gone
             self.state["next_time"] = max(self.state["next_time"], self.state["time"] + t_until_dep)
+
+            # set the delay between now and the car to depart
             self.state["t_until_dep"] = ack.t_until_dep
+
+            # use this delay to adjust the generator to create a new car on the right moment
+            self.state["next_time"] = self.state["next_time"] - self.state["t_until_dep"]
+
             self.state["time"] += self.elapsed
             self.state[
                 "car_can_move"] = True  # we know when the car can move now so we can already set the flag to true

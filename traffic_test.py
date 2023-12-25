@@ -3,6 +3,7 @@ from pypdevs.DEVS import AtomicDEVS, CoupledDEVS
 from components.generator import Generator
 from components.roadsegment import RoadSegment
 from components.collector import Collector
+from tests.helpers import PingPong
 
 class Traffic(CoupledDEVS):
     def __init__(self, name):
@@ -23,6 +24,12 @@ class Traffic(CoupledDEVS):
         self.connectPorts(self.road.Q_sack, self.gen.Q_rack)
 
         self.connectPorts(self.road.car_out, self.col.car_in)
+
+
+class TrafficPingPongTest(CoupledDEVS):
+    def __init__(self, name):
+        super(TrafficPingPongTest, self).__init__(name)
+
 
 if __name__ == "__main__":
     from pypdevs.simulator import Simulator
