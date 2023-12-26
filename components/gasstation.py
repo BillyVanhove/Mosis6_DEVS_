@@ -9,16 +9,16 @@ class GasStation(AtomicDEVS):
         super(GasStation, self).__init__(block_name)
 
         self.observ_delay: float = observ_delay
-        # new parameter thzt holds the time of the next quary
-        self.time_of_next_query: float = observ_delay
 
         self.state = {
             "car_list": [],
             "t_until_dep": INFINITY,
             "time_until_next_event": INFINITY,
             "time": 0.0,  # Keep track of the current simulation time
+            "ack_received": INFINITY,
             "query": False,
-            "available": True
+            "available": True,
+            "should_output": False
         }
 
         # input port
@@ -39,24 +39,23 @@ class GasStation(AtomicDEVS):
             delay = 120
         # hold the car with his own delay
         departure_time = self.state["time"] + delay
-        self.state["car_list"].append((car, departure_time))
+        self.state["car_list"].append([car, departure_time])
         self.state["car_list"].sort(key=lambda x: x[1])
-        print(self.state["car_list"])
+        # print(self.state["car_list"])
 
     def timeAdvance(self):
         # Simply return the stored time until the next event
-        return self.state["time_until_next_event"]
+        return min(self.observ_delay, self.state["time_until_next_event"])
+        # return self.state["time_until_next_event"]
 
     def outputFnc(self):
         # if the car can't move yet (no ack received) but the car exist, send a Query
         if self.state["query"]:
-            self.time_of_next_query += self.observ_delay
             return {
                 self.Q_send: self.state["query"]
             }
 
-        if self.state["car_list"] and self.state["car_list"][0][1] <= self.state["time"] and self.state["available"]:
-            self.state["available"] = False
+        if self.state["car_list"] and self.state["should_output"] and self.state["available"]:
             return {
                 self.car_out: self.state["car_list"][0][0]
             }
@@ -64,32 +63,50 @@ class GasStation(AtomicDEVS):
         return {}
 
     def intTransition(self):
+        self.state['time'] += self.timeAdvance()
+
         # Process internal transition (e.g., car departure, query event)
-        self.state["car_list"] = [(car, time) for car, time in self.state["car_list"] if time > self.state["time"]]
-        if not self.state["car_list"]:
+        self.state["time_until_next_event"] = INFINITY
+
+        if not self.state["car_list"] or self.state["time"] > self.state["ack_received"] + self.state["t_until_dep"]:
             self.state["available"] = True
-        # Determine the time until the next event
-        if self.state["car_list"]:
-            self.state["time_until_next_event"] = self.state["car_list"][0][1] - self.state["time"]
-        elif self.time_of_next_query > self.state["time"]:
-            self.state["time_until_next_event"] = self.time_of_next_query - self.state["time"]
+
         else:
-            self.state["time_until_next_event"] = INFINITY
+            # happens every 30s
+            if not self.state["should_output"]:
+                for i in range(len(self.state["car_list"])):
+                    self.state["car_list"][i][1] -= self.observ_delay
+
+                self.state["car_list"].sort(key=lambda x: x[1])
+
+                if self.state["car_list"][0][1] < self.observ_delay:
+                    # print("IF",self.state["car_list"][0][1])
+                    self.state["time_until_next_event"] = self.state["car_list"][0][1]
+                    self.state["should_output"] = True
+
+            # happens right after a car departed
+            else:
+                # self.state["available"] = False
+                self.state["should_output"] = False
+                # print("ELSE",self.state["car_list"][0][1])
+                self.state["time_until_next_event"] = self.observ_delay - self.state["car_list"][0][1]
+                self.state["car_list"].pop(0)
+
         return self.state
 
     def extTransition(self, inputs):
+        self.state['time'] += self.elapsed
         # Process external events (e.g., car arrival, acknowledgment reception)
         ack: QueryAck = inputs.get(self.Q_rack, None)
         car: Car = inputs.get(self.car_in, None)
 
         if car is not None:
             self.car_enter(car)
+
         if ack is not None:
-            self.state["t_until_dep"] = max(self.state["time"], ack.t_until_dep)
-            if self.state["time"] >= self.state["t_until_dep"]:
-                self.state["available"] = True
-        # Update the time for the next event after processing external events
-        # Calculate the time until the next event based on the current state
-        times = [event[1] for event in self.state["car_list"]] + [self.time_of_next_query]
-        self.state["time_until_next_event"] =  min(times) - self.state["time"] if times else INFINITY
+            self.state["t_until_dep"] = ack.t_until_dep
+            self.state["time_until_next_event"] = self.state["t_until_dep"]
+            self.state["ack_received"] = self.state["time"]
+            self.state["available"] = False
+
         return self.state

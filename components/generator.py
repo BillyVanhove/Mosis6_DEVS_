@@ -2,6 +2,7 @@ from pypdevs.DEVS import AtomicDEVS
 from components.messages import *
 from pypdevs.infinity import INFINITY
 import random
+from pprint import pprint
 
 class UUID:
     def __init__(self):
@@ -44,6 +45,9 @@ class Generator(AtomicDEVS):
         self.car_out = self.addOutPort("car_out")
         self.Q_send = self.addOutPort("Q_send")
 
+        self.destruct = {}
+        self.c = 0
+
     def generate_IAT(self) -> float:
         return random.uniform(self.IAT_min, self.IAT_max)
 
@@ -64,6 +68,7 @@ class Generator(AtomicDEVS):
         return car
 
     def timeAdvance(self):
+        self.destruct[self.c] = "timeAdvance";self.c += 1
         if self.state["cars_generated"] > self.limit:
             return INFINITY
 
@@ -78,6 +83,7 @@ class Generator(AtomicDEVS):
         return self.state["next_time"]
 
     def outputFnc(self):
+        self.destruct[self.c] = "outputFnc";self.c += 1
         if self.state["next_car"] is None:
             return {}
 
@@ -96,6 +102,8 @@ class Generator(AtomicDEVS):
         return {}
 
     def intTransition(self):
+        self.destruct[self.c] = "intTransition";self.c += 1
+        self.state["time"] += self.timeAdvance()
         if self.state["t_until_dep"] != INFINITY:
             self.state["t_until_dep"] = INFINITY
 
@@ -117,24 +125,40 @@ class Generator(AtomicDEVS):
         return self.state
 
     def extTransition(self, inputs):
+        self.destruct[self.c] = "extTransition";self.c += 1
+        self.state["time"] += self.elapsed
         ack: QueryAck = inputs.get(self.Q_rack, [])
 
         if ack is not None:
-            t_until_dep = max(0.0, ack.t_until_dep)
+            # t_until_dep = max(0.0, ack.t_until_dep)
 
             # next action can happen at the scheduled time OR if the car is still on the segment in
             # front of it, it must wait for t_until_dep seconds to make sure the car is gone
-            self.state["next_time"] = max(self.state["next_time"], self.state["time"] + t_until_dep)
+            # self.state["next_time"] = max(self.state["next_time"], self.state["time"] + t_until_dep)
+            # self.state["next_time"] = max(self.state["next_time"], t_until_dep)
 
             # set the delay between now and the car to depart
             self.state["t_until_dep"] = ack.t_until_dep
+            temp_observer_delay = 0.1
 
             # use this delay to adjust the generator to create a new car on the right moment
-            self.state["next_time"] = self.state["next_time"] - self.state["t_until_dep"]
+            temp = self.state["next_time"] - self.state["t_until_dep"] - temp_observer_delay
 
-            self.state["time"] += self.elapsed
+            # if the time it takes for a car to depart is larger than the time to make a car, set next_time to 0.0
+            # the reasoning is that once it departs, 'next_time' will be used to determine when a new car needs to
+            # be created. Since it is 0.0, it can happen immediately.
+            if temp < 0:
+                self.state["next_time"] = 0.0
+            else:
+                self.state["next_time"] = temp
+
             self.state[
                 "car_can_move"] = True  # we know when the car can move now so we can already set the flag to true
             self.state["car_id_to_move"] = ack.ID
 
         return self.state
+
+    def __del__(self):
+        # print("GENERATOR")
+        # pprint(self.destruct)
+        pass

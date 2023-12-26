@@ -7,11 +7,11 @@ class Car:
     v_pref: float
     dv_pos_max: float
     dv_neg_max: float
-    departure_time: float
-    distance_traveled: float
-    v: float
-    no_gas: bool
-    destination: str
+    departure_time: float = 0.0
+    distance_traveled: float = 0.0
+    v: float = 0.0
+    no_gas: bool = False
+    destination: str = "Antwerp"
 
 
 @dataclass
