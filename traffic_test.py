@@ -58,7 +58,7 @@ class TrafficWithGasStation(CoupledDEVS):
         super(TrafficWithGasStation, self).__init__(name)
 
         self.gen = self.addSubModel(
-            Generator("gen", 2, 2, 8, 0, ["Temse", "Antwerpen", "Sint-Niklaas", "Borgerokko", "Doel"], 1))
+            Generator("gen", 2, 2, 8, 0, ["Temse", "Antwerpen", "Sint-Niklaas", "Borgerokko", "Doel"], 5))
 
         self.road = self.addSubModel(RoadSegment("road1", 20, 10))
 
@@ -86,6 +86,6 @@ if __name__ == "__main__":
     model = TrafficWithGasStation("traffic_with_gasstation")
     sim = Simulator(model)
     sim.setClassicDEVS()
-    sim.setTerminationTime(600)
+    sim.setTerminationTime(1200)
     sim.setVerbose(None)
     sim.simulate()

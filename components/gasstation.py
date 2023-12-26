@@ -18,7 +18,9 @@ class GasStation(AtomicDEVS):
             "ack_received": INFINITY,
             "query": None,
             "send_query": False,
+            "query_sent_time": INFINITY,
             "available": True,
+            "should_output": False
         }
 
         # input port
@@ -38,12 +40,18 @@ class GasStation(AtomicDEVS):
         if delay < 120:
             delay = 120
         # hold the car with his own delay
-        departure_time = self.state["time"] + delay
-        self.state["car_list"].append([car, departure_time])
+        self.state["car_list"].append([car, delay])
         self.state["car_list"].sort(key=lambda x: x[1])
         # print(self.state["car_list"])
 
     def timeAdvance(self):
+        if len(self.state["car_list"]) == 0:
+            return INFINITY
+
+        # wait 0.2s for an ACK
+        if self.state["time"] + 0.2 > self.state["query_sent_time"]:
+            return 0.2
+
         # Simply return the stored time until the next event
         return min(self.observ_delay, self.state["time_until_next_event"])
 
@@ -55,7 +63,8 @@ class GasStation(AtomicDEVS):
                 self.Q_send: self.state["query"]
             }
 
-        if self.state["car_list"] and self.state["send_query"] and self.state["available"]:
+        if self.state["car_list"] and self.state["should_output"] and self.state["available"]:
+            #print(self.state["car_list"][0][0])
             return {
                 self.car_out: self.state["car_list"][0][0]
             }
@@ -68,12 +77,15 @@ class GasStation(AtomicDEVS):
         # Process internal transition (e.g., car departure, query event)
         self.state["time_until_next_event"] = INFINITY
 
-        if not self.state["car_list"] or self.state["time"] > self.state["ack_received"] + self.state["t_until_dep"]:
+        if self.state["time"] > self.state["ack_received"] + self.state["t_until_dep"]:
+            self.state["available"] = True
+
+        if not self.state["car_list"]:
             self.state["available"] = True
 
         else:
             # happens every 30s
-            if not self.state["send_query"]:
+            if not self.state["should_output"]:
                 for i in range(len(self.state["car_list"])):
                     # check if the delay is bigger then the observed delay otherwise put it on 0
                     if self.state["car_list"][i][1] >= self.observ_delay:
@@ -88,23 +100,34 @@ class GasStation(AtomicDEVS):
                     self.state["time_until_next_event"] = self.state["car_list"][0][1]
                     self.state["query"] = Query(ID=self.state["car_list"][0][0].ID)
                     self.state["send_query"] = True
+                    self.state["should_output"] = True
+
+            # this code runs right after query is sent
+            elif self.state["send_query"]:
+                self.state["send_query"] = False
+                self.state["car_list"][0][1] = 0.0
+                self.state["query_sent_time"] = self.state["time"]
 
 
             # happens right after a car departed
             else:
                 # self.state["available"] = False
                 self.state["send_query"] = False
+                self.state["should_output"] = False
+                self.state["query_sent_time"] = INFINITY  # reset
                 # print("ELSE",self.state["car_list"][0][1])
                 self.state["time_until_next_event"] = self.observ_delay - self.state["car_list"][0][1]
                 # change the car his gas because its refilled
                 self.state["car_list"][0][0].no_gas = False
 
-                self.state["car_list"].pop()
-                #print(self.state["car_list"])
+                self.state["car_list"].pop(0)
+                # print(len(self.state["car_list"]))
+
         return self.state
 
     def extTransition(self, inputs):
         self.state['time'] += self.elapsed
+
         # Process external events (e.g., car arrival, acknowledgment reception)
         ack: QueryAck = inputs.get(self.Q_rack, None)
         car: Car = inputs.get(self.car_in, None)
@@ -117,5 +140,6 @@ class GasStation(AtomicDEVS):
             self.state["time_until_next_event"] = self.state["t_until_dep"]
             self.state["ack_received"] = self.state["time"]
             self.state["available"] = False
+            self.state["query_sent_time"] = INFINITY  # reset
 
         return self.state
