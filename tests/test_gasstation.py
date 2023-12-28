@@ -21,6 +21,7 @@ class TestGasStation(unittest.TestCase):
 
 		sim = Simulator(model)
 		sim.setClassicDEVS()
+		# sim.setVerbose(None)
 		sim.simulate()
 
 		times = [x[0] - x[1].departure_time for x in cl.state["data"]]
