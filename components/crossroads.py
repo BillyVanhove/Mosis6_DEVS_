@@ -115,12 +115,13 @@ class CrossRoadSegment(RoadSegment):
 
 
 class CrossRoads(CoupledDEVS):
-    def __init__(self, block_name: str, destinations: list, L: float, v_max: float, observ_delay: float):
+    def __init__(self, block_name: str, L: float, v_max: float, destinations: list, observ_delay: float):
         super(CrossRoads, self).__init__(block_name)
 
-        self.destinations = destinations
+
         self.L: float = L
         self.v_max: float = v_max
+        self.destinations = destinations
         self.observ_delay: float = observ_delay
 
         # input ports
@@ -133,14 +134,10 @@ class CrossRoads(CoupledDEVS):
         self.Q_send = self.addOutPort("Q_send")
         self.Q_sack = self.addOutPort("Q_sack")
 
-    def timeAdvance(self):
-        pass
+        # (self, block_name: str, v_max: float)
+        self.crossN = self.addSubModel(CrossRoadSegment("crossN", L, v_max, destinations))
+        self.crossE = self.addSubModel(CrossRoadSegment("crossE", L, v_max, destinations))
+        self.crossS = self.addSubModel(CrossRoadSegment("crossS", L, v_max, destinations))
+        self.crossW = self.addSubModel(CrossRoadSegment("crossW", L, v_max, destinations))
 
-    def outputFnc(self):
-        pass
 
-    def intTransition(self):
-        pass
-
-    def extTransition(self, inputs):
-        pass
