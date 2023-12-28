@@ -1,146 +1,71 @@
-from pypdevs.DEVS import AtomicDEVS, CoupledDEVS
-from components.messages import *
-import random
+from pypdevs.DEVS import CoupledDEVS
 
 
 
-class CrossRoadSegment(AtomicDEVS):
-    def __init__(self, block_name: str, IAT_min: float, IAT_max: float, v_pref_mu: float, v_pref_sigma: float,
-                 destinations: list, limit: int):
-        super(CrossRoadSegment, self).__init__(block_name)
-
-        self.IAT_min: float = IAT_min
-        self.IAT_max: float = IAT_max
-        self.v_pref_mu: float = v_pref_mu
-        self.v_pref_sigma: float = v_pref_sigma
-        self.destinations: list = destinations
-        self.limit: int = limit
-
-        self.state = {
-        }
-
-        # input port
-        self.Q_rack = self.addInPort("Q_rack")
-
-        # output ports
-        self.car_out = self.addOutPort("car_out")
+from components.roadsegment import RoadSegment
 
 
-    def generate_IAT(self) -> float:
-        pass
+class CrossRoadSegment(RoadSegment):
+    def __init__(self, block_name, L, v_max, destinations):
+        # Initialize the base class with the provided parameters
+        super(CrossRoadSegment, self).__init__(block_name, L, v_max)
 
-    def generate_v_pref(self) -> float:
-        pass
+        self.destinations = destinations
 
-    def getDestination(self) -> str:
-        pass
+        # Adding a new input port for 'car_in_cr'
+        self.car_in_cr = self.addInPort("car_in_cr")
 
-    def generateCar(self) -> Car:
-        pass
-
-    def timeAdvance(self):
-        pass
+        # Adding a new output port for 'car_out_cr'
+        self.car_out_cr = self.addOutPort("car_out_cr")
 
     def outputFnc(self):
-        if self.state["next_car"] is None:
-            return {}
-
-        if not self.state["car_can_move"] and self.state["next_car"] is not None:
+        self.destruct[self.c] = "outputFnc";
+        self.c += 1
+        if self.state["send_ack"]:
             return {
-                self.Q_send: Query(self.state["next_car"].ID)
+                self.Q_sack: self.state["next_ack"]
             }
 
-        return {
-            self.car_out: self.state["next_car"]
-        }
+        if self.state["send_query"]:
+            return {
+                self.Q_send: self.state["next_query"]
+            }
 
-    def intTransition(self):
-        self.state["time"] += self.timeAdvance()
-        self.state["next_car"] = self.generateCar()
-        self.state["current_car_id"] += 1
-        self.state["next_time"] = self.generate_IAT()
-        self.state["cars_generated"] += 1
-        return self.state
+        if len(self.state["cars_present"]) > 0:
+            return {
+                self.car_out: self.state["cars_present"][0]
+            }
 
-    def extTransition(self, inputs):
-        acks = inputs.get(self.Q_rack, [])
-
-        ack: QueryAck
-        for ack in acks:
-            t_until_dep = max(0.0, ack.t_until_dep)
+        return {}
 
 
-class CrossRoads (AtomicDEVS):
-    def __init__(self, block_name: str, IAT_min: float, IAT_max: float, v_pref_mu: float, v_pref_sigma: float,
-                 destinations: list, limit: int):
+
+class CrossRoads(CoupledDEVS):
+    def __init__(self, block_name: str, destinations: list, L: float, v_max: float, observ_delay: float):
         super(CrossRoads, self).__init__(block_name)
 
-        self.IAT_min: float = IAT_min
-        self.IAT_max: float = IAT_max
-        self.v_pref_mu: float = v_pref_mu
-        self.v_pref_sigma: float = v_pref_sigma
-        self.destinations: list = destinations
-        self.limit: int = limit
+        self.destinations = destinations
+        self.L: float = L
+        self.v_max: float = v_max
+        self.observ_delay: float = observ_delay
 
-        self.state = {
-            "next_time": 0.0,
-            "next_car": None,
-            "time": 0.0,
-            "cars_generated": 0,
-            "current_car_id": 0,
-            "car_can_move": False
-        }
-
-        # input port
+        # input ports
+        self.car_in = self.addInPort("car_in")
+        self.Q_recv = self.addInPort("Q_recv")
         self.Q_rack = self.addInPort("Q_rack")
 
         # output ports
         self.car_out = self.addOutPort("car_out")
         self.Q_send = self.addOutPort("Q_send")
-
-    def generate_IAT(self) -> float:
-        return random.uniform(self.IAT_min, self.IAT_max)
-
-    def generate_v_pref(self) -> float:
-        return random.normalvariate(self.v_pref_mu, self.v_pref_sigma)
-
-    def getDestination(self) -> str:
-        return random.sample(self.destinations, 1)[0]
-
-    def generateCar(self) -> Car:
-        random_v = self.generate_v_pref()
-        car = Car(ID=self.state["current_car_id"], v_pref=random_v, dv_pos_max=28, dv_neg_max=21,
-                  departure_time=self.state["time"], distance_traveled=0.0, v=random_v, no_gas=False,
-                  destination=self.getDestination())
-        return car
-
+        self.Q_sack = self.addOutPort("Q_sack")
     def timeAdvance(self):
-        return self.state["next_time"]
+        pass
 
     def outputFnc(self):
-        if self.state["next_car"] is None:
-            return {}
-
-        if not self.state["car_can_move"] and self.state["next_car"] is not None:
-            return {
-                self.Q_send: Query(self.state["next_car"].ID)
-            }
-
-        return {
-            self.car_out: self.state["next_car"]
-        }
+        pass
 
     def intTransition(self):
-        self.state["time"] += self.timeAdvance()
-        self.state["next_car"] = self.generateCar()
-        self.state["current_car_id"] += 1
-        self.state["next_time"] = self.generate_IAT()
-        self.state["cars_generated"] += 1
-        return self.state
+        pass
 
     def extTransition(self, inputs):
-        acks = inputs.get(self.Q_rack, [])
-
-        ack: QueryAck
-        for ack in acks:
-            t_until_dep = max(0.0, ack.t_until_dep)
+        pass
