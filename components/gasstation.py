@@ -12,15 +12,13 @@ class GasStation(AtomicDEVS):
 
         self.state = {
             "car_list": [],
-            "t_until_dep": INFINITY,
-            "time_until_next_event": INFINITY,
+            "t_until_dep": 0.0,
             "time": 0.0,  # Keep track of the current simulation time
-            "ack_received": INFINITY,
+            "ack_is_received": False,
+            "idle": False,
             "query": None,
             "send_query": False,
-            "query_sent_time": INFINITY,
             "available": True,
-            "should_output": False
         }
 
         # input port
@@ -34,33 +32,43 @@ class GasStation(AtomicDEVS):
     def generate_delay(self) -> float:
         return random.normalvariate(600, 130)
 
+    def invariant(self):
+        total = 0
+        total += int(self.state["ack_is_received"] == True)
+        total += int(self.state["idle"] == True)
+        total += int(self.state["send_query"] == True)
+        total += int(self.state["available"] == True)
+        if total == 0:
+            print("TOTAL 0")
+        if total > 1:
+            print("TOTAL HIGH")
+
     def car_enter(self, car: Car) -> None:
         # the delay needs to be at least 2 minutes otherwise set on 2 minutes
         delay: float = self.generate_delay()
         if delay < 120:
             delay = 120
         # hold the car with his own delay
-        self.state["car_list"].append([car, delay, self.state["time"]])
+        self.state["car_list"].append([car, delay])
         self.state["car_list"].sort(key=lambda x: x[1])
-        # print(self.state["car_list"])
+
+    def update_cars(self, t):
+        for i in range(len(self.state["car_list"])):
+            self.state["car_list"][i][1] -= t
+            if self.state["car_list"][i][1] < 0.0:
+                self.state["car_list"][i][1] = 0.0
 
     def timeAdvance(self):
-        if len(self.state["car_list"]) == 0:
+        if self.state["ack_is_received"]:
+            return self.state["t_until_dep"] if self.state["t_until_dep"] is not INFINITY else self.observ_delay
+
+        if self.state["idle"] or len(self.state["car_list"]) == 0:
             return INFINITY
 
-        if self.state["time_until_next_event"] != INFINITY:
-            return self.state["time_until_next_event"]
+        if self.state["send_query"]:
+            return 0.0  # queries are sent immediately
 
-        if self.state["available"]:
-            return self.state["car_list"][0][1]
-
-        # wait 0.2s for an ACK
-        # if self.state["time"] + 0.2 > self.state["query_sent_time"]:
-        #     return 0.2
-
-        # Simply return the stored time until the next event
-        return min(self.observ_delay, self.state["time_until_next_event"])
-
+        return self.state["car_list"][0][1]
 
     def outputFnc(self):
         # if the car can't move yet (no ack received) but the car exist, send a Query
@@ -69,8 +77,8 @@ class GasStation(AtomicDEVS):
                 self.Q_send: self.state["query"]
             }
 
-        if self.state["car_list"] and self.state["should_output"] and self.state["available"]:
-            #print(self.state["car_list"][0][0])
+        # this code will only be ran after t_until_dep has already elapsed
+        if self.state["ack_is_received"]:
             return {
                 self.car_out: self.state["car_list"][0][0]
             }
@@ -80,61 +88,39 @@ class GasStation(AtomicDEVS):
     def intTransition(self):
         self.state['time'] += self.timeAdvance()
 
-        # Process internal transition (e.g., car departure, query event)
-        self.state["time_until_next_event"] = INFINITY
+        # this code runs right after query is sent
+        if self.state["send_query"]:
+            self.state["send_query"] = False
+            self.state["idle"] = True
 
-        if self.state["time"] > self.state["ack_received"] + self.state["t_until_dep"]:
+        # this code runs if no query or ack are present and if a car hasn't just departed
+        elif self.state["available"]:
+            # update cars with the delay of first car
+            self.update_cars(self.state["car_list"][0][1])
+            self.state["available"] = False
+
+            # if delay == 0
+            if self.state["car_list"][0][1] == 0.0:
+                self.state["query"] = Query(ID=self.state["car_list"][0][0].ID)
+                self.state["send_query"] = True
+                self.state["idle"] = False
+                self.state["ack_is_received"] = False
+
+        # happens right after a car departed
+        elif self.state["ack_is_received"] and not self.state["idle"]:
+
+            # change the car's gas because its refilled
+            self.state["car_list"][0][0].no_gas = False
+            self.state["car_list"].pop(0)
+
+            # change state to available again
             self.state["available"] = True
 
-        if not self.state["car_list"]:
-            self.state["available"] = True
+            # cars can leave after acks are received so reset if a car leaves
+            self.state["ack_is_received"] = False
+            self.state["idle"] = False
 
-        else:
-            # happens every 30s
-            if not self.state["should_output"]:
-                for i in range(len(self.state["car_list"])):
-
-                    # check if the delay is bigger then the observed delay otherwise put it on 0
-                    if self.state["car_list"][i][1] >= self.state["time"] - self.state["car_list"][i][2]:
-                        self.state["car_list"][i][1] -= self.state["time"] - self.state["car_list"][i][2]
-
-                    else:
-                        self.state["car_list"][i][1] = 0
-
-                    self.state["car_list"][i][2] = self.state["time"]
-
-
-                # if delay == 0
-                if self.state["car_list"][0][1] == 0.0:
-                    # print("IF",self.state["car_list"][0][1])
-                    self.state["time_until_next_event"] = self.state["car_list"][0][1]
-                    self.state["query"] = Query(ID=self.state["car_list"][0][0].ID)
-                    self.state["send_query"] = True
-                    self.state["should_output"] = True
-
-            # this code runs right after query is sent
-            elif self.state["send_query"]:
-                self.state["send_query"] = False
-                # self.state["car_list"][0][1] = 0.0
-                self.state["query_sent_time"] = self.state["time"]
-
-
-            # happens right after a car departed
-            else:
-                # self.state["available"] = False
-                self.state["send_query"] = False
-                self.state["should_output"] = False
-                self.state["query_sent_time"] = INFINITY  # reset
-
-                # change the car his gas because its refilled
-                self.state["car_list"][0][0].no_gas = False
-                self.state["car_list"].pop(0)
-
-                # set next event as time when next car departs
-                self.state["time_until_next_event"] = self.state["car_list"][0][1]
-
-                # print(len(self.state["car_list"]))
-
+        # self.invariant()
         return self.state
 
     def extTransition(self, inputs):
@@ -145,13 +131,16 @@ class GasStation(AtomicDEVS):
         car: Car = inputs.get(self.car_in, None)
 
         if car is not None:
+            self.update_cars(t=self.elapsed)
             self.car_enter(car)
 
         if ack is not None:
-            self.state["t_until_dep"] = ack.t_until_dep
-            self.state["time_until_next_event"] = self.state["t_until_dep"]
-            self.state["ack_received"] = self.state["time"]
-            self.state["available"] = False
-            self.state["query_sent_time"] = INFINITY  # reset
+            self.update_cars(t=self.elapsed)
 
+            self.state["t_until_dep"] = ack.t_until_dep
+            self.state["ack_is_received"] = True
+            self.state["idle"] = False
+
+        # self.invariant()
         return self.state
+

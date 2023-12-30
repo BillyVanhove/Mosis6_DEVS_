@@ -1,21 +1,21 @@
 from pypdevs.DEVS import AtomicDEVS
 from pprint import pprint
 
-from components.helperfunctions import getTime
+from components.helperfunctions import getTime, getDistance
 from components.messages import *
 from pypdevs.infinity import INFINITY
 
 
 class RoadSegment(AtomicDEVS):
-    def __init__(self, block_name: str, L: float, v_max: float):
+    def __init__(self, block_name: str, L: float, v_max: float, observ_delay: float = 0.1, priority: bool = False, lane: int = 0):
         super(RoadSegment, self).__init__(block_name)
         self.c = 0
         self.destruct = {}
         self.L: float = L
         self.v_max: float = v_max
-        self.observ_delay: float = 0.1
-        self.priority: bool = False
-        self.lane: int = 0
+        self.observ_delay: float = observ_delay
+        self.priority: bool = priority
+        self.lane: int = lane
 
         self.state = {
             "cars_present": [],
@@ -23,11 +23,13 @@ class RoadSegment(AtomicDEVS):
             "arr_time": 0.0,
             "remaining_x": 0.0,
             "time": 0.0,
+            "ack_id": -1,
             "next_ack": None,
             "send_ack": False,
             "next_query": None,
             "send_query": False,
             "resend_query": False,
+            "collisions": 0
         }
 
         # input ports
@@ -39,6 +41,93 @@ class RoadSegment(AtomicDEVS):
         self.car_out = self.addOutPort("car_out")
         self.Q_send = self.addOutPort("Q_send")
         self.Q_sack = self.addOutPort("Q_sack")
+
+    def calc_v_new(self, car: Car):
+        car_v_pref: float = car.v_pref
+        car_v: float = car.v
+
+        # car is faster than optimal speed -> decelerate
+        if car_v > car_v_pref:
+            difference = car_v - car_v_pref
+            v_new = car_v - min(car.dv_neg_max, difference)
+
+        # car is slower than optimal speed -> accelerate
+        elif car_v < car_v_pref:
+            difference = car_v_pref - car_v
+            v_new = car_v + min(car.dv_pos_max, difference)
+
+        # car is driving at optimal speed -> do nothing
+        else:
+            v_new = car_v
+
+        return v_new
+
+    def car_accelerate(self, car: Car, acceleration_rate: float, delay: float = 0.0):
+        # car wants to accelerate but would go over the max speed
+        if acceleration_rate + car.v > self.v_max >= car.v:
+            acceleration_rate = self.v_max - car.v  # max acceleration rate to not go over max speed
+
+            # make sure that this acceleration isn't above the max acceleration for 1 'tick'
+            if acceleration_rate > car.dv_pos_max:
+                acceleration_rate = car.dv_pos_max
+
+        # car wants to accelerate but is already over the max speed -> decelerate
+        elif acceleration_rate + car.v > self.v_max < car.v:
+            difference = car.v - self.v_max  # difference in speed
+
+            # car can decelerate to a value under max speed in 1 'tick' -> decelerate to this value
+            if difference <= car.dv_neg_max:
+                deceleration_rate = difference
+
+            # car can't decelerate to a value under max speed in 1 'tick' -> decelerate as much as possible
+            else:
+                deceleration_rate = car.dv_neg_max
+
+            # decelerate
+            self.car_decelerate(car, deceleration_rate=deceleration_rate, delay=delay)
+            return
+
+        # calculate the distance covered from the time of arrival at the previous speed
+        # (aka time between sending and receiving query)
+        already_covered_distance = getDistance(car.v, self.state["time"] - self.state["arr_time"])
+        self.state["remaining_x"] -= already_covered_distance
+
+        self.state["arr_time"] = self.state["time"]
+
+        # statement is allowed without checks as they happen before this
+        car.v += acceleration_rate
+        self.state["t_until_dep"] = getTime(self.state["remaining_x"], car.v) # + delay
+
+    def car_decelerate(self, car: Car, deceleration_rate: float = None, delay: float = 0.0):
+        if deceleration_rate is None:
+            new_car_v: float = max(car.v - car.dv_neg_max, 0.0)  # max deceleration
+        else:
+            new_car_v: float = max(car.v - deceleration_rate, 0.0)  # custom deceleration
+
+        # calculate the distance covered from the time of arrival at the previous speed
+        # (aka time between sending and receiving query)
+        already_covered_distance = getDistance(car.v, self.state["time"] - self.state["arr_time"])
+        self.state["remaining_x"] -= already_covered_distance
+
+        self.state["arr_time"] = self.state["time"]
+
+        # now update car speed
+        car.v = new_car_v
+        if car.v == 0.0:
+            self.state["t_until_dep"] = INFINITY
+        else:
+            self.state["t_until_dep"] = getTime(self.state["remaining_x"], car.v) # + delay
+
+    def check_collision(self, v_new: float, t_no_coll: float, car: Car) -> bool:
+        # calculate the time on the current roadsegment with new v
+        # then, calculate the remaining_x for this roadsegment with this speed
+        t_until_dep_with_new_speed = getDistance(v=v_new, t=getTime(self.state["remaining_x"], v_new))
+        # t_until_dep_with_new_speed = getDistance(v=v_new, t=getTime(self.state["remaining_x"]-getDistance(car.v, self.state["time"] - self.state["arr_time"]), v_new))
+
+        # collision happens when you depart before t_no_coll
+        if t_until_dep_with_new_speed < t_no_coll:
+            return True
+        return False
 
     def calc_dep_time(self) -> float:
         until_dep_time = 0.0
@@ -57,6 +146,11 @@ class RoadSegment(AtomicDEVS):
         return until_dep_time
 
     def car_enter(self, car: Car) -> None:
+        # if a 2nd car arrives, they collide
+        if len(self.state["cars_present"]) == 1:
+            self.cars_crash()
+            return
+
         car.distance_traveled += self.L
         self.state["cars_present"] += [car]
         self.state["t_until_dep"] = getTime(self.L, car.v)
@@ -64,6 +158,13 @@ class RoadSegment(AtomicDEVS):
         self.state["next_query"] = Query(ID=car.ID)
         self.state["send_query"] = True
         self.state["arr_time"] = self.state["time"]
+
+    def cars_crash(self):
+        self.state["cars_present"] = []
+        self.state["t_until_dep"] = 0.0
+        self.state["remaining_x"] = 0.0
+        self.state["arr_time"] = self.state["time"]
+        self.state["collisions"] += 1
 
     def timeAdvance(self):
         self.destruct[self.c] = "timeAdvance"; self.c += 1
@@ -77,6 +178,7 @@ class RoadSegment(AtomicDEVS):
             return 0.0  # send query instantly
 
         if len(self.state["cars_present"]) > 0:
+            a = 2
             return self.calc_dep_time() # - self.observ_delay  # observer delay is only useful when sending acknowledgements
             # return self.state["t_until_dep"]
 
@@ -143,12 +245,48 @@ class RoadSegment(AtomicDEVS):
             self.state["send_ack"] = True
 
         if ack is not None:
+            car: Car = self.state["cars_present"][0]
+            if car is None:
+               return self.state
+
+            # a 2nd ACK for a car arrives
+            if self.state["ack_id"] == ack.ID:
+                measured_observer_delay = 0.0
+
+            # an ACK for a new car arrives
+            else:
+                # indirect reading of the observer delay of the component in front
+                measured_observer_delay = self.state["time"] - self.state["arr_time"]
+                self.state["ack_id"] = ack.ID
+
+            if not ack.sideways:
+                v_new = self.calc_v_new(car=car)
+                t_no_coll = ack.t_until_dep
+                collision = self.check_collision(v_new=v_new, t_no_coll=t_no_coll, car=car)
+
+                if not collision:
+                    if car.v < v_new:  # old is lower than new
+                        self.car_accelerate(car, acceleration_rate=v_new-car.v, delay=measured_observer_delay)
+                    elif car.v > v_new:  # old is higher than new
+                        self.car_decelerate(car, deceleration_rate=car.v-v_new, delay=measured_observer_delay)
+                    else:  # old and new speed are the same
+                        self.car_accelerate(car, acceleration_rate=0.0, delay=measured_observer_delay)  # needed because a car can be above max speed
+
+                else:
+                    self.car_decelerate(car, deceleration_rate=max(car.v - car.dv_neg_max, self.state["remaining_x"] - t_no_coll), delay=measured_observer_delay)
+
+            else:
+                if not self.priority:
+                    self.car_decelerate(car=car, delay=measured_observer_delay)
+                else:
+                    a = 2
+                pass
 
             # say there is a car in front that departs in 3s and you can depart in 2s -> wait 1 more second
             # if there is a car in front that departs in 1s but you have 2s to go -> depart in 2s
             # => take max of those values to determine your time on the current segment
-            dep_time_of_car_in_front = ack.t_until_dep
-            self.state["t_until_dep"] = max(self.state["t_until_dep"], dep_time_of_car_in_front)
+            # dep_time_of_car_in_front = ack.t_until_dep
+            # self.state["t_until_dep"] = max(self.state["t_until_dep"], dep_time_of_car_in_front)
 
         return self.state
 
