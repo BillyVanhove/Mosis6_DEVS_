@@ -5,7 +5,7 @@ import random
 
 
 class GasStation(AtomicDEVS):
-    def __init__(self, block_name: str, observ_delay: float = 30):
+    def __init__(self, block_name: str, observ_delay: float = 0.1):
         super(GasStation, self).__init__(block_name)
 
         self.observ_delay: float = observ_delay
@@ -40,7 +40,7 @@ class GasStation(AtomicDEVS):
         if delay < 120:
             delay = 120
         # hold the car with his own delay
-        self.state["car_list"].append([car, delay])
+        self.state["car_list"].append([car, delay, self.state["time"]])
         self.state["car_list"].sort(key=lambda x: x[1])
         # print(self.state["car_list"])
 
@@ -48,9 +48,15 @@ class GasStation(AtomicDEVS):
         if len(self.state["car_list"]) == 0:
             return INFINITY
 
+        if self.state["time_until_next_event"] != INFINITY:
+            return self.state["time_until_next_event"]
+
+        if self.state["available"]:
+            return self.state["car_list"][0][1]
+
         # wait 0.2s for an ACK
-        if self.state["time"] + 0.2 > self.state["query_sent_time"]:
-            return 0.2
+        # if self.state["time"] + 0.2 > self.state["query_sent_time"]:
+        #     return 0.2
 
         # Simply return the stored time until the next event
         return min(self.observ_delay, self.state["time_until_next_event"])
@@ -87,15 +93,19 @@ class GasStation(AtomicDEVS):
             # happens every 30s
             if not self.state["should_output"]:
                 for i in range(len(self.state["car_list"])):
+
                     # check if the delay is bigger then the observed delay otherwise put it on 0
-                    if self.state["car_list"][i][1] >= self.observ_delay:
-                        self.state["car_list"][i][1] -= self.observ_delay
+                    if self.state["car_list"][i][1] >= self.state["time"] - self.state["car_list"][i][2]:
+                        self.state["car_list"][i][1] -= self.state["time"] - self.state["car_list"][i][2]
+
                     else:
                         self.state["car_list"][i][1] = 0
 
-                # self.state["car_list"].sort(key=lambda x: x[1]) unnecesary
+                    self.state["car_list"][i][2] = self.state["time"]
 
-                if self.state["car_list"][0][1] < self.observ_delay:
+
+                # if delay == 0
+                if self.state["car_list"][0][1] == 0.0:
                     # print("IF",self.state["car_list"][0][1])
                     self.state["time_until_next_event"] = self.state["car_list"][0][1]
                     self.state["query"] = Query(ID=self.state["car_list"][0][0].ID)
@@ -105,7 +115,7 @@ class GasStation(AtomicDEVS):
             # this code runs right after query is sent
             elif self.state["send_query"]:
                 self.state["send_query"] = False
-                self.state["car_list"][0][1] = 0.0
+                # self.state["car_list"][0][1] = 0.0
                 self.state["query_sent_time"] = self.state["time"]
 
 
@@ -115,12 +125,14 @@ class GasStation(AtomicDEVS):
                 self.state["send_query"] = False
                 self.state["should_output"] = False
                 self.state["query_sent_time"] = INFINITY  # reset
-                # print("ELSE",self.state["car_list"][0][1])
-                self.state["time_until_next_event"] = self.observ_delay - self.state["car_list"][0][1]
+
                 # change the car his gas because its refilled
                 self.state["car_list"][0][0].no_gas = False
-
                 self.state["car_list"].pop(0)
+
+                # set next event as time when next car departs
+                self.state["time_until_next_event"] = self.state["car_list"][0][1]
+
                 # print(len(self.state["car_list"]))
 
         return self.state
