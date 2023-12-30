@@ -6,15 +6,11 @@ class Fork(RoadSegment):
         # Initialize the base class with the provided parameters
         super(Fork, self).__init__(block_name, L, v_max)
 
-
-
         # Adding a new output port for 'car_out2'
         self.car_out2 = self.addOutPort("car_out2")
 
     # Overriding the output method to include logic for the 'no_gas' attribute
     def outputFnc(self):
-        self.destruct[self.c] = "outputFnc";
-        self.c += 1
         if self.state["send_ack"]:
             return {
                 self.Q_sack: self.state["next_ack"]

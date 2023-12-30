@@ -144,7 +144,7 @@ class RoadSegment(AtomicDEVS):
 
         return until_dep_time
 
-    def car_enter(self, car: Car) -> None:
+    def car_enter(self, car: Car, intern: bool = None) -> None:
         # if a 2nd car arrives, they collide
         if len(self.state["cars_present"]) == 1:
             self.cars_crash()
@@ -281,11 +281,6 @@ class RoadSegment(AtomicDEVS):
                     a = 2
                 pass
 
-            # say there is a car in front that departs in 3s and you can depart in 2s -> wait 1 more second
-            # if there is a car in front that departs in 1s but you have 2s to go -> depart in 2s
-            # => take max of those values to determine your time on the current segment
-            # dep_time_of_car_in_front = ack.t_until_dep
-            # self.state["t_until_dep"] = max(self.state["t_until_dep"], dep_time_of_car_in_front)
 
         return self.state
 
