@@ -1,10 +1,9 @@
 from pypdevs.DEVS import AtomicDEVS
 from pprint import pprint
 
-from components.helperfunctions import getTime, getDistance
+from components.helperfunctions import getTime, getDistance, StateDict
 from components.messages import *
 from pypdevs.infinity import INFINITY
-
 
 class RoadSegment(AtomicDEVS):
     def __init__(self, block_name: str, L: float, v_max: float, observ_delay: float = 0.1, priority: bool = False, lane: int = 0):
@@ -17,7 +16,7 @@ class RoadSegment(AtomicDEVS):
         self.priority: bool = priority
         self.lane: int = lane
 
-        self.state = {
+        self.state: StateDict = StateDict({
             "cars_present": [],
             "t_until_dep": 0.0,
             "arr_time": 0.0,
@@ -30,7 +29,7 @@ class RoadSegment(AtomicDEVS):
             "send_query": False,
             "resend_query": False,
             "collisions": 0
-        }
+        })
 
         # input ports
         self.car_in = self.addInPort("car_in")

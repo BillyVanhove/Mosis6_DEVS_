@@ -1,5 +1,6 @@
 from pypdevs.DEVS import AtomicDEVS
 from components.messages import *
+from components.helperfunctions import StateDict
 from pypdevs.infinity import INFINITY
 import random
 from pprint import pprint
@@ -26,7 +27,7 @@ class Generator(AtomicDEVS):
         self.destinations: list = destinations
         self.limit: int = limit
 
-        self.state = {
+        self.state: StateDict = StateDict({
             "next_time": 0.0,
             "next_car": None,
             "time": 0.0,
@@ -36,7 +37,7 @@ class Generator(AtomicDEVS):
             "car_id_to_move": -1,
             "t_until_dep": INFINITY,
             "query": None
-        }
+        })
 
         # input port
         self.Q_rack = self.addInPort("Q_rack")

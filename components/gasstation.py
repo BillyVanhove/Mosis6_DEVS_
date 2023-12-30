@@ -1,5 +1,6 @@
 from pypdevs.DEVS import AtomicDEVS
 from components.messages import *
+from components.helperfunctions import StateDict
 from pypdevs.infinity import INFINITY
 import random
 
@@ -10,7 +11,7 @@ class GasStation(AtomicDEVS):
 
         self.observ_delay: float = observ_delay
 
-        self.state = {
+        self.state: StateDict = StateDict({
             "car_list": [],
             "t_until_dep": 0.0,
             "time": 0.0,  # Keep track of the current simulation time
@@ -19,7 +20,7 @@ class GasStation(AtomicDEVS):
             "query": None,
             "send_query": False,
             "available": True,
-        }
+        })
 
         # input port
         self.Q_rack = self.addInPort("Q_rack")
