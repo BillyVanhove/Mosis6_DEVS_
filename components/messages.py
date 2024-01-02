@@ -17,6 +17,7 @@ class Car:
 @dataclass
 class Query:
     ID: int  # ID of the car that queried the data
+    intern: bool = False
 
 
 @dataclass

@@ -4,13 +4,16 @@ from components.helperfunctions import StateDict
 from pypdevs.infinity import INFINITY
 import random
 from pprint import pprint
-
+random.seed(42)
 class UUID:
     def __init__(self):
         self.id = 0
 
     def uuid4(self):
         self.id += 1
+        return self.id
+
+    def getID(self):
         return self.id
 
 uuid = UUID()
@@ -46,9 +49,6 @@ class Generator(AtomicDEVS):
         self.car_out = self.addOutPort("car_out")
         self.Q_send = self.addOutPort("Q_send")
 
-        self.destruct = {}
-        self.c = 0
-
     def generate_IAT(self) -> float:
         return random.uniform(self.IAT_min, self.IAT_max)
 
@@ -63,13 +63,12 @@ class Generator(AtomicDEVS):
 
     def generateCar(self) -> Car:
         random_v = self.generate_v_pref()
-        car = Car(ID=self.state["current_car_id"], v_pref=random_v, dv_pos_max=28, dv_neg_max=21,
+        car = Car(ID=self.state["current_car_id"], v_pref=random_v, dv_pos_max=5, dv_neg_max=5,
                   departure_time=self.state["time"], distance_traveled=0.0, v=random_v, no_gas=self.getGasStatus(),
                   destination=self.getDestination())
         return car
 
     def timeAdvance(self):
-        self.destruct[self.c] = "timeAdvance";self.c += 1
         if self.state["cars_generated"] > self.limit:
             return INFINITY
 
@@ -84,7 +83,6 @@ class Generator(AtomicDEVS):
         return self.state["next_time"]
 
     def outputFnc(self):
-        self.destruct[self.c] = "outputFnc";self.c += 1
         if self.state["next_car"] is None:
             return {}
 
@@ -103,7 +101,6 @@ class Generator(AtomicDEVS):
         return {}
 
     def intTransition(self):
-        self.destruct[self.c] = "intTransition";self.c += 1
         self.state["time"] += self.timeAdvance()
         if self.state["t_until_dep"] != INFINITY:
             self.state["t_until_dep"] = INFINITY
@@ -112,7 +109,7 @@ class Generator(AtomicDEVS):
         elif self.state["car_can_move"] and self.state["t_until_dep"] == INFINITY:  # if car_can_move is False, then we shouldn't make a 2nd car yet
             self.state["car_can_move"] = False  # a car is to enter the system so set to False
             # self.state["time"] += self.timeAdvance()
-            self.state["current_car_id"] += 1
+            self.state["current_car_id"] = uuid.uuid4()
             self.state["next_car"] = self.generateCar()
             self.state["next_time"] = self.generate_IAT()
             self.state["cars_generated"] += 1
@@ -126,7 +123,6 @@ class Generator(AtomicDEVS):
         return self.state
 
     def extTransition(self, inputs):
-        self.destruct[self.c] = "extTransition";self.c += 1
         self.state["time"] += self.elapsed
         ack: QueryAck = inputs.get(self.Q_rack, [])
 
@@ -140,10 +136,9 @@ class Generator(AtomicDEVS):
 
             # set the delay between now and the car to depart
             self.state["t_until_dep"] = ack.t_until_dep
-            temp_observer_delay = 0.1
 
             # use this delay to adjust the generator to create a new car on the right moment
-            temp = self.state["next_time"] - self.state["t_until_dep"] - temp_observer_delay
+            temp = self.state["next_time"] - self.state["t_until_dep"]
 
             # if the time it takes for a car to depart is larger than the time to make a car, set next_time to 0.0
             # the reasoning is that once it departs, 'next_time' will be used to determine when a new car needs to
@@ -158,8 +153,3 @@ class Generator(AtomicDEVS):
             self.state["car_id_to_move"] = ack.ID
 
         return self.state
-
-    def __del__(self):
-        # print("GENERATOR")
-        # pprint(self.destruct)
-        pass

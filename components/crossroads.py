@@ -20,10 +20,12 @@ class CrossRoadSegment(RoadSegment):
         # Adding a new output port for 'car_out_cr'
         self.car_out_cr = self.addOutPort("car_out_cr")
 
-    def car_enter(self, car: Car, intern: bool = None) -> None:
+    def car_enter(self, car: Car, intern: bool = False) -> None:
         super().car_enter(car)
-        self.state["cars_present"][-1] = [self.state["cars_present"][-1], intern]
 
+        # a car just entered but it could have crashed, which makes the car list empty and [-1] would be out of range
+        if len(self.state["cars_present"]) != 0:
+            self.state["cars_present"][-1] = [self.state["cars_present"][-1], intern]
 
     def outputFnc(self):
         if self.state["send_ack"]:
@@ -107,15 +109,102 @@ class CrossRoadSegment(RoadSegment):
         return self.state
 
 
-class CrossRoads(CoupledDEVS):
-    def __init__(self, block_name: str, L: float, v_max: float, destinations: list, observ_delay: float = 0.1):
-        super(CrossRoads, self).__init__(block_name)
+class RightOfTheWayRoadSegment(CrossRoadSegment):
+    def __init__(self, block_name: str, L: float, v_max: float, destinations: list, observ_delay: float = None):
+        if observ_delay is None:
+            super(RightOfTheWayRoadSegment, self).__init__(block_name, L, v_max, destinations)
+        else:
+            super(RightOfTheWayRoadSegment, self).__init__(block_name, L, v_max, destinations, observ_delay=observ_delay)
 
+        self.state["query_from_cross"] = False
+        self.state["query_from_outside"] = False
+        self.state["intern_car_id"] = -1
+        self.state["notify_intern_car"] = False
+        self.state["notification_for_intern_car"] = None
+
+    def reset(self):
+        self.state["query_from_cross"] = False
+        self.state["query_from_outside"] = False
+        self.state["intern_car_id"] = -1
+        self.state["notify_intern_car"] = False
+        self.state["notification_for_intern_car"] = None
+
+    def car_enter(self, car: Car, intern: bool = False) -> None:
+        # print("_/_", self.state["query_from_cross"], self.state["query_from_outside"], self.state["intern_car_id"], self.state["notify_intern_car"], self.state["notification_for_intern_car"])
+        super().car_enter(car, intern)
+
+        if intern is not None:
+            self.state["next_query"].intern = True
+
+        self.reset()
+
+    def timeAdvance(self):
+        if self.state["notify_intern_car"]:
+            return 0.0
+
+        return super().timeAdvance()
+
+    def outputFnc(self):
+        if self.state["notify_intern_car"]:
+            return {
+                self.Q_sack: self.state["notification_for_intern_car"]
+            }
+
+        return super().outputFnc()
+
+    def intTransition(self):
+        if self.state["notify_intern_car"]:
+            self.state['time'] += self.timeAdvance()
+            self.state["notify_intern_car"] = False
+            return self.state
+
+        return super().intTransition()
+
+    def extTransition(self, inputs):
+        super().extTransition(inputs)
+
+        # car_in_cr: Car = inputs.get(self.car_in_cr, None)
+        # if car_in_cr is not None:
+        #     self.car_enter(car_in_cr, True)
+
+        query: Query = inputs.get(self.Q_recv, None)
+
+        if query is not None:
+            a = 2
+            if not query.intern:
+                self.state["query_from_outside"] = True
+
+                if self.state["query_from_cross"]:
+                    self.state["notification_for_intern_car"] = QueryAck(ID=self.state["intern_car_id"], t_until_dep=self.calc_dep_time(), sideways=True)
+                    self.state["notify_intern_car"] = True
+
+            if query.intern:
+                self.state["query_from_cross"] = True
+                self.state["intern_car_id"] = query.ID
+
+                if self.state["query_from_outside"]:
+                    if isinstance(self.state["next_ack"], QueryAck):
+                        self.state["next_ack"].sideways = True
+
+        return self.state
+
+
+
+
+
+
+
+
+
+class CrossRoads(CoupledDEVS):
+    def __init__(self, block_name: str, L: float, v_max: float, destinations: list, observ_delay: float = 0.1, mode = 0):
+        super(CrossRoads, self).__init__(block_name)
 
         self.L: float = L
         self.v_max: float = v_max
         self.destinations = destinations
         self.observ_delay: float = observ_delay
+        self.mode = mode
 
         # car input ports
         self.car_in_N = self.addInPort("car_in_N")
@@ -154,10 +243,18 @@ class CrossRoads(CoupledDEVS):
         self.Q_sack_W = self.addOutPort("Q_sack_W")
 
         # subModels
-        self.crossN = self.addSubModel(CrossRoadSegment("crossN", L, v_max, destinations, observ_delay=self.observ_delay))
-        self.crossE = self.addSubModel(CrossRoadSegment("crossE", L, v_max, destinations, observ_delay=self.observ_delay))
-        self.crossS = self.addSubModel(CrossRoadSegment("crossS", L, v_max, destinations, observ_delay=self.observ_delay))
-        self.crossW = self.addSubModel(CrossRoadSegment("crossW", L, v_max, destinations, observ_delay=self.observ_delay))
+        if self.mode == 0:
+            self.crossN = self.addSubModel(CrossRoadSegment("crossN", L, v_max, [self.destinations[3]], observ_delay=self.observ_delay))
+            self.crossE = self.addSubModel(CrossRoadSegment("crossE", L, v_max, [self.destinations[0]], observ_delay=self.observ_delay))
+            self.crossS = self.addSubModel(CrossRoadSegment("crossS", L, v_max, [self.destinations[1]], observ_delay=self.observ_delay))
+            self.crossW = self.addSubModel(CrossRoadSegment("crossW", L, v_max, [self.destinations[2]], observ_delay=self.observ_delay))
+        elif self.mode == 1:
+            self.crossN = self.addSubModel(RightOfTheWayRoadSegment("crossN", L, v_max, [self.destinations[3]], observ_delay=self.observ_delay))
+            self.crossE = self.addSubModel(RightOfTheWayRoadSegment("crossE", L, v_max, [self.destinations[0]], observ_delay=self.observ_delay))
+            self.crossS = self.addSubModel(RightOfTheWayRoadSegment("crossS", L, v_max, [self.destinations[1]], observ_delay=self.observ_delay))
+            self.crossW = self.addSubModel(RightOfTheWayRoadSegment("crossW", L, v_max, [self.destinations[2]], observ_delay=self.observ_delay))
+        elif self.mode == 2:
+            pass
 
         # interconnect all CrossRoadSegment objects car in-out
         self.connectPorts(self.crossE.car_out_cr, self.crossN.car_in_cr)
@@ -216,3 +313,14 @@ class CrossRoads(CoupledDEVS):
         self.connectPorts(self.car_in_W, self.crossW.car_in)
         self.connectPorts(self.Q_recv_W, self.crossW.Q_recv)
         self.connectPorts(self.Q_rack_S, self.crossW.Q_rack)
+
+if __name__ == "__main__":
+    from pypdevs.simulator import Simulator
+
+    model = CrossRoads("cross_road", 20, 15, ["Gent", "Antwerpen"])
+
+    sim = Simulator(model)
+    sim.setClassicDEVS()
+    sim.setTerminationTime(5000)
+    sim.setVerbose(None)
+    sim.simulate()

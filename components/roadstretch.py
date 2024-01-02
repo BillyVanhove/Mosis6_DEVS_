@@ -18,11 +18,11 @@ class RoadStretch(CoupledDEVS):
 
         self.RS_LENGTH = 20
         self.RS_V_MAX = 15
-        self.OBSERV_DELAY = 0.1
+        self.OBSERV_DELAY = 0.0
         self.FORK_V_MAX = 15
 
         self.generator = self.addSubModel(
-            Generator("generator", 5, 7, 12, 1, ["Temse", "Antwerpen", "Sint-Niklaas", "Doel", "Gent"], self.nr_cars))
+            Generator("generator", 5, 5, 12, 1, ["Temse", "Antwerpen", "Sint-Niklaas", "Doel", "Gent"], self.nr_cars))
 
         self.fork = self.addSubModel(Fork("fork", L=self.RS_LENGTH, v_max=self.FORK_V_MAX))
         self.gas_station = self.addSubModel(GasStation("gas_station", observ_delay=self.OBSERV_DELAY))
@@ -114,10 +114,10 @@ class RoadStretch(CoupledDEVS):
 if __name__ == "__main__":
     from pypdevs.simulator import Simulator
 
-    model = RoadStretch("road_stretch", number_of_RS_left=2, number_of_RS_right=3, number_of_cars_to_generate=5)
+    model = RoadStretch("road_stretch", number_of_RS_left=2, number_of_RS_right=3, number_of_cars_to_generate=20)
 
     sim = Simulator(model)
     sim.setClassicDEVS()
-    sim.setTerminationTime(50)
+    sim.setTerminationTime(1500)
     sim.setVerbose(None)
     sim.simulate()

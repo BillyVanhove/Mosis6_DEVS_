@@ -8,8 +8,7 @@ from pypdevs.infinity import INFINITY
 class RoadSegment(AtomicDEVS):
     def __init__(self, block_name: str, L: float, v_max: float, observ_delay: float = 0.1, priority: bool = False, lane: int = 0):
         super(RoadSegment, self).__init__(block_name)
-        self.c = 0
-        self.destruct = {}
+
         self.L: float = L
         self.v_max: float = v_max
         self.observ_delay: float = observ_delay
@@ -137,10 +136,10 @@ class RoadSegment(AtomicDEVS):
             # until_dep_time += self.state["t_until_dep"] + self.observ_delay
             until_dep_time += self.state["t_until_dep"]
 
-        # reasoning: Say you arrive at t=28 and you are expected to depart in 3.5s
-        # scenario: t=30 and the segment before this wants to know when you leave
-        # calculation: 30s - 28s = 2s so 3.5s - 2s = 1.5s left
-        until_dep_time -= (self.state["time"] - self.state["arr_time"])
+            # reasoning: Say you arrive at t=28 and you are expected to depart in 3.5s
+            # scenario: t=30 and the segment before this wants to know when you leave
+            # calculation: 30s - 28s = 2s so 3.5s - 2s = 1.5s left
+            until_dep_time -= (self.state["time"] - self.state["arr_time"])
 
         return until_dep_time
 
@@ -166,7 +165,6 @@ class RoadSegment(AtomicDEVS):
         self.state["collisions"] += 1
 
     def timeAdvance(self):
-        self.destruct[self.c] = "timeAdvance"; self.c += 1
         if self.state["resend_query"]:
             return self.observ_delay  # sends query again because car is standing still
 
@@ -177,14 +175,12 @@ class RoadSegment(AtomicDEVS):
             return 0.0  # send query instantly
 
         if len(self.state["cars_present"]) > 0:
-            a = 2
-            return self.calc_dep_time() # - self.observ_delay  # observer delay is only useful when sending acknowledgements
+            return max(0.0, self.calc_dep_time())  # observer delay is only useful when sending acknowledgements
             # return self.state["t_until_dep"]
 
         return INFINITY
 
     def outputFnc(self):
-        self.destruct[self.c] = "outputFnc";self.c += 1
         if self.state["send_ack"]:
             return {
                 self.Q_sack: self.state["next_ack"]
@@ -203,7 +199,6 @@ class RoadSegment(AtomicDEVS):
         return {}
 
     def intTransition(self):
-        self.destruct[self.c] = "intTransition";self.c += 1
         self.state['time'] += self.timeAdvance()
         if self.state["send_ack"]:
             self.state["send_ack"] = False
@@ -225,7 +220,6 @@ class RoadSegment(AtomicDEVS):
         return self.state
 
     def extTransition(self, inputs):
-        self.destruct[self.c] = "extTransition";self.c += 1
         self.state["time"] += self.elapsed
         query: Query = inputs.get(self.Q_recv, None)
         ack: QueryAck = inputs.get(self.Q_rack, None)
@@ -236,17 +230,19 @@ class RoadSegment(AtomicDEVS):
 
         if query is not None:
             sideways = False
-            # if len(self.state["cars_present"]) == 0:
-            #     ack: QueryAck = QueryAck(query.ID, self.observ_delay, self.lane, sideways)
-            # else:
-            #     ack: QueryAck = QueryAck(query.ID, self.state["t_until_dep"] + self.observ_delay, self.lane, sideways)
             self.state["next_ack"] = QueryAck(query.ID, self.calc_dep_time(), self.lane, sideways)
             self.state["send_ack"] = True
 
         if ack is not None:
-            car: Car = self.state["cars_present"][0]
+            car: Car = None
+            if len(self.state["cars_present"]) != 0 and isinstance(self.state["cars_present"][0], Car):
+                car: Car = self.state["cars_present"][0]
+
             if car is None:
                return self.state
+
+            if car.ID != ack.ID:
+                return self.state
 
             # a 2nd ACK for a car arrives
             if self.state["ack_id"] == ack.ID:
@@ -284,7 +280,3 @@ class RoadSegment(AtomicDEVS):
 
         return self.state
 
-    def __del__(self):
-        # print("ROAD SEGMENT")
-        # pprint(self.destruct)
-        pass
